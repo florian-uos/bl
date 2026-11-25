@@ -33,11 +33,13 @@ bl_dredge_multicore <- function(global_model,
 
     envir <- parent.frame()
 
+    # Subset-Ausdruck unausgewertet erfassen (VOR jedem Zugriff auf dredge_subset!)
+    subset_expr <- substitute(dredge_subset)
+    has_subset  <- !identical(subset_expr, quote(NULL))
+
     old_opt <- options(na.action = "na.fail")
     on.exit(options(old_opt), add = TRUE)
 
-    # --- 1. Modellaufrufe erzeugen (fittet nichts) ---------------------
-    # "auto": maximal 1/10 der Beobachtungen, NULL: kein Limit, sonst Vektor c(min, max)
     if (identical(dredge_m.lim, "auto")) {
         dredge_m.lim <- c(0, floor(nobs(global_model) / 10))
         message("dredge_m.lim automatisch gesetzt: c(", dredge_m.lim[1], ", ", dredge_m.lim[2], ")")
@@ -45,11 +47,30 @@ bl_dredge_multicore <- function(global_model,
 
     dredge_args <- c(
         list(global_model, evaluate = FALSE),
-        if (!is.null(dredge_m.lim))  list(m.lim  = dredge_m.lim),
-        if (!is.null(dredge_subset)) list(subset = dredge_subset),
+        if (!is.null(dredge_m.lim)) list(m.lim = dredge_m.lim),
+        if (has_subset)             list(subset = subset_expr),
         additional_dredge_arguments
     )
     calls <- do.call(MuMIn::dredge, dredge_args)
+    # envir <- parent.frame()
+    #
+    # old_opt <- options(na.action = "na.fail")
+    # on.exit(options(old_opt), add = TRUE)
+    #
+    # # --- 1. Modellaufrufe erzeugen (fittet nichts) ---------------------
+    # # "auto": maximal 1/10 der Beobachtungen, NULL: kein Limit, sonst Vektor c(min, max)
+    # if (identical(dredge_m.lim, "auto")) {
+    #     dredge_m.lim <- c(0, floor(nobs(global_model) / 10))
+    #     message("dredge_m.lim automatisch gesetzt: c(", dredge_m.lim[1], ", ", dredge_m.lim[2], ")")
+    # }
+    #
+    # dredge_args <- c(
+    #     list(global_model, evaluate = FALSE),
+    #     if (!is.null(dredge_m.lim))  list(m.lim  = dredge_m.lim),
+    #     if (!is.null(dredge_subset)) list(subset = dredge_subset),
+    #     additional_dredge_arguments
+    # )
+    # calls <- do.call(MuMIn::dredge, dredge_args)
     message(length(calls), " Modelle werden gefittet")
 
     # --- 2. Cluster ------------------------------------------------------
@@ -73,7 +94,8 @@ bl_dredge_multicore <- function(global_model,
     environment(fit_fun) <- globalenv()
 
     # --- 3. Fitten --------------------------------------------------------
-    fits <- parallel::parLapplyLB(cl, calls, fit_fun, chunk.size = 1)
+    fits <- parallel::parLapplyLB(cl, calls, fit_fun#, chunk.size = max(1, ceiling(length(calls) / (n_cores * 20)))
+                                  )
     parallel::stopCluster(cl)
 
     # --- 4. Fehlgeschlagene Fits -----------------------------------------

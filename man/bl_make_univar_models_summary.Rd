@@ -10,36 +10,61 @@ bl_make_univar_models_summary(
   independent_vars,
   random_formula = NA,
   offset_var = NA,
-  family = NA,
-  model_family = NA,
+  family = NULL,
+  model_family = NULL,
+  engine = c("auto", "lme4", "glmmTMB"),
+  zi_formula = NULL,
+  disp_formula = NULL,
   null_model = NULL,
-  tc_off = F,
-  do_scale = T,
-  P_star = T,
-  mean = T,
-  error_type = "SE",
-  R_2 = T,
-  AUC = F,
-  debugging = F,
+  tc_off = FALSE,
+  do_scale = TRUE,
+  P_star = TRUE,
+  mean = TRUE,
+  error_type = c("SE", "SD"),
+  R_2 = TRUE,
+  AUC = FALSE,
+  diagnostics = TRUE,
+  diag_tests = c("dispersion", "zeroinflation", "outliers"),
+  diag_alpha = 0.05,
+  diag_n_sim = 250,
+  diag_thresholds = list(dispersion = c(0.5, 1.5), zeroinflation = 1.5),
+  diag_column = TRUE,
+  diag_warn = TRUE,
+  debugging = FALSE,
   max_digits = 3
 )
 }
 \arguments{
-\item{data_table}{a dataframe with a dependent and at least one independent variables}
+\item{data_table}{a dataframe with a dependent and at least one independent variable}
 
 \item{dependent_var}{a character string of the dependent variable name}
 
 \item{independent_vars}{a vector of character strings of the independent variable names}
 
-\item{random_formula}{optional: if a GLMM should be calculated, a character string in form of a random formula}
+\item{random_formula}{optional: if a GLMM should be calculated, a character string
+in form of a random formula, e.g. "(1|site)"}
 
-\item{offset_var}{optional: a character string of the offset variable name}
+\item{offset_var}{optional: a character string of the offset variable name (will be log-transformed)}
 
-\item{model_family}{the model family in GLM or GLMM, sse ?GLM and ?lme4::glmer. must be}
+\item{family}{deprecated, use \code{model_family}}
 
-\item{null_model}{for R² calculation, a null model can be specified. Especially usefull for mixed models, where conditional R² computation may require a null model.}
+\item{model_family}{a family. Can be a character string ("poisson", "nbinom2", "beta"),
+a family function (poisson, glmmTMB::nbinom2) or a family object (Gamma(link = "log"),
+glmmTMB::ordbeta()). Use an object if you need a non-default link.}
 
-\item{tc_off}{logical. if model_family == "binomial", tc_off turns off separate columns for treatment and control cases}
+\item{engine}{"auto" (default), "lme4" or "glmmTMB". "auto" uses glmmTMB for families only available there
+(nbinom1/2, beta, ordbeta, tweedie, compois, ...) or if \code{zi_formula}/\code{disp_formula} is given,
+otherwise lme4 (GLMM) or glm (no random formula). "glmmTMB" can also be used without random effects.}
+
+\item{zi_formula}{optional, glmmTMB only: zero-inflation formula, e.g. \code{~1}}
+
+\item{disp_formula}{optional, glmmTMB only: dispersion formula, e.g. \code{~1}}
+
+\item{null_model}{for R² calculation, a null model can be specified. Especially useful
+for mixed models, where conditional R² computation may require a null model.}
+
+\item{tc_off}{logical. if the family is binomial with 0/1 response, tc_off turns off
+separate columns for treatment and control cases}
 
 \item{do_scale}{logical. should numerical independent variables be scaled for Estimate calculation?}
 
@@ -51,36 +76,58 @@ bl_make_univar_models_summary(
 
 \item{R_2}{logical. should r-squared values be added to the output table?}
 
-\item{AUC}{logical. should AIC values be added to the output table?}
+\item{AUC}{logical. should AUC values be added to the output table (binomial only)?}
+
+\item{diagnostics}{logical. run DHARMa residual diagnostics for every model?}
+
+\item{diag_tests}{which tests to run: any of "dispersion", "zeroinflation", "outliers", "uniformity"}
+
+\item{diag_alpha}{significance level for the diagnostic tests}
+
+\item{diag_n_sim}{number of simulations for DHARMa::simulateResiduals}
+
+\item{diag_thresholds}{list defining when a significant test counts as \emph{severe}:
+\code{dispersion} = c(lower, upper) bounds of the dispersion ratio,
+\code{zeroinflation} = upper bound of the observed/expected zero ratio.
+Significant outlier excess is always treated as severe.}
+
+\item{diag_column}{logical. add a "Diagnostics" column to the result table?
+Severe problems are marked with "\link{!}". The complete test statistics are always
+stored in \code{attr(result, "diagnostics")}.}
+
+\item{diag_warn}{logical. emit one warning listing all models with severe problems?}
+
+\item{debugging}{logical. print intermediate objects}
 
 \item{max_digits}{integer. indicates the maximum of digits (up to 4).}
 }
 \description{
-bl function to make quick overview tables of a set of univariable models (GLM or GLMM) using the same dependent variable and different independent variables. All models use the same family.
+bl function to make quick overview tables of a set of univariable
+models (GLM or GLMM) using the same dependent variable and different independent
+variables. All models use the same family. Models can be fitted with base \code{glm},
+\code{lme4} or \code{glmmTMB}. For every model, DHARMa residual diagnostics (dispersion,
+zero-inflation, outliers) can be run; problems are reported in a column and as a warning.
 }
 \examples{
-# check out the warning
-univar_models_summary <-  bl_make_univar_models_summary(bl_ecology_data,
-                                                        "grasshopper",
-                                                        names(bl_ecology_data)[4:20],
-                                                        "(1|sub_area)",
-                                                        model_family = "poisson")
+# lme4 (as before)
+bl_make_univar_models_summary(bl_ecology_data, "grasshopper",
+                              names(bl_ecology_data)[4:20],
+                              "(1|sub_area)", model_family = "poisson")
 
-# add null_model for R² calculation
-the_null_model <- lme4::glmer(grasshopper ~ (1|sub_area),
-                                                        data = bl_ecology_data,
-                                                        family = "poisson")
+# glmmTMB with negative binomial
+bl_make_univar_models_summary(bl_ecology_data, "grasshopper",
+                              names(bl_ecology_data)[4:20],
+                              "(1|sub_area)", model_family = "nbinom2",
+                              engine = "glmmTMB")
 
-univar_models_summary <-  bl_make_univar_models_summary(bl_ecology_data,
-                                                        "grasshopper",
-                                                        names(bl_ecology_data)[4:20],
-                                                        "(1|sub_area)",
-                                                        model_family = "poisson",
-                                                        null_model = the_null_model)
+# glmmTMB, Gamma with log link, no random effect
+bl_make_univar_models_summary(dat, "shannon", c("elevation", "area"),
+                              model_family = Gamma(link = "log"),
+                              engine = "glmmTMB")
 
-# custom order of the result
-my_order <- c ("elevation", "isolation", "area")
-bl_order_by_reference(univar_models_summary, "Variable", my_order)
-
+# zero-inflation model
+bl_make_univar_models_summary(dat, "richness", c("elevation", "area"),
+                              "(1|block)", model_family = "nbinom2",
+                              zi_formula = ~1)
 
 }
